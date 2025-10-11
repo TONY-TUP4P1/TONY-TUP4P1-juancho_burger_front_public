@@ -46,14 +46,28 @@ export const AuthProvider = ({ children }) => {
   };
 
   const register = async (userData) => {
-    try {
-      const data = await authService.register(userData);
-      setUser(data.user);
-      return data.user;
-    } catch (error) {
-      console.error('Register error:', error);
-      throw error;
+  try {
+    console.log('📝 AuthContext - Intentando registrar:', userData);
+    const data = await authService.register(userData);
+    console.log('✅ AuthContext - Usuario registrado:', data.user);
+    setUser(data.user);
+    setError(null);
+    return true;
+  } catch (error) {
+    console.error('❌ AuthContext - Register error:', error);
+    
+    // Mostrar errores de validación de forma clara
+    if (error.errors) {
+      const errorMessages = Object.values(error.errors).flat().join('\n');
+      setError(errorMessages);
+      alert('Errores de validación:\n' + errorMessages);
+    } else {
+      setError(error.message || 'Error al registrar usuario');
+      alert(error.message || 'Error al registrar usuario');
     }
+    
+    return false;
+  }
   };
 
   if (loading) {

@@ -2,11 +2,15 @@ import api from './api';
 
 export const orderService = {
   // Obtener todos los pedidos
+  // Obtener todos los pedidos (Admin)
   getAllOrders: async () => {
     try {
+      console.log('📡 orderService - Solicitando TODOS los pedidos...');
       const response = await api.get('/orders');
+      console.log('📦 orderService - Respuesta:', response.data);
       return response.data;
     } catch (error) {
+      console.error('❌ orderService - Error en getAllOrders:', error);
       throw error.response?.data || error.message;
     }
   },

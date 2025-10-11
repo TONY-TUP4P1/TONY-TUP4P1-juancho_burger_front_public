@@ -1,65 +1,124 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Store, Truck } from 'lucide-react';
 import SearchBar from '../components/ui/SearchBar';
 import StatusBadge from '../components/ui/StatusBadge';
 import Modal from '../components/ui/Modal';
 import { useData } from '../hooks/useData';
+import { orderService } from '../services/orderService';
 
 const Orders = () => {
-  const { orders, addOrder, updateOrder, deleteOrder } = useData();
+  const { addOrder, updateOrder, deleteOrder } = useData();
+  const [orders, setOrders] = useState([]); // Estado local para pedidos
   const [showModal, setShowModal] = useState(false);
   const [newOrder, setNewOrder] = useState({ table: '', type: 'Salón', items: '', total: '' });
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [loading, setLoading] = useState(true);
 
-  const handleAddOrder = () => {
-    if (newOrder.table && newOrder.items && newOrder.total) {
-      // Crear el pedido con formato compatible
-      const orderData = {
-        userId: 1, // ID del admin
-        table: newOrder.table,
-        type: newOrder.type,
-        items: newOrder.items, // Guardar como string para pedidos manuales del admin
-        total: parseFloat(newOrder.total),
-        deliveryAddress: newOrder.type === 'Delivery' ? newOrder.table : null
-      };
-      
-      addOrder(orderData);
-      setNewOrder({ table: '', type: 'Salón', items: '', total: '' });
-      setShowModal(false);
+  // Cargar todos los pedidos
+  const cargarPedidos = async () => {
+    try {
+      console.log('📋 Orders - Cargando pedidos...');
+      setLoading(true);
+      const allOrders = await orderService.getAllOrders();
+      console.log('✅ Orders - Pedidos cargados:', allOrders);
+      console.log('✅ Orders - Cantidad:', allOrders.length);
+      setOrders(allOrders);
+    } catch (error) {
+      console.error('❌ Orders - Error al cargar pedidos:', error);
+      setOrders([]);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const updateOrderStatus = (orderId) => {
-    const order = orders.find(o => o.id === orderId);
-    const statusFlow = { pending: 'preparing', preparing: 'ready', ready: 'delivered' };
-    if (order && statusFlow[order.status]) {
-      updateOrder(orderId, { status: statusFlow[order.status] });
-    }
-  };
-
-  const handleDeleteOrder = (orderId) => {
-    if (window.confirm('¿Está seguro de eliminar este pedido?')) {
-      deleteOrder(orderId);
-    }
-  };
-
-  const filteredOrders = orders.filter(order => {
-    const matchesSearch = order.table.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         order.id.toString().includes(searchTerm);
-    const matchesFilter = filterStatus === 'all' || order.status === filterStatus;
-    return matchesSearch && matchesFilter;
-  });
-
-  const activeOrdersCount = orders.filter(o => o.status !== 'delivered').length;
+  // Cargar pedidos al montar el componente
+  useEffect(() => {
+    console.log('📋 Orders - Componente montado');
+    cargarPedidos();
+  }, []);
 
   // Función para mostrar items (compatible con string y array)
   const displayItems = (items) => {
     if (Array.isArray(items)) {
       return items.map(item => `${item.name} x${item.quantity}`).join(', ');
     }
-    return items;
+    return items || 'Sin items';
   };
+
+  const handleAddOrder = async () => {
+    if (!newOrder.table || !newOrder.items || !newOrder.total) {
+      alert('Por favor complete todos los campos obligatorios');
+      return;
+    }
+
+    try {
+      console.log('📦 Admin - Creando pedido manual...');
+      
+      const orderData = {
+        userId: 1, // ID del admin
+        table: newOrder.table,
+        type: newOrder.type,
+        items: newOrder.items,
+        total: parseFloat(newOrder.total),
+        deliveryAddress: newOrder.type === 'Delivery' ? newOrder.table : null,
+        paymentMethod: 'Efectivo',
+        notes: 'Pedido creado por administrador',
+      };
+
+      console.log('📋 Datos a enviar:', orderData);
+      
+      await addOrder(orderData);
+      
+      setNewOrder({ table: '', type: 'Salón', items: '', total: '' });
+      setShowModal(false);
+      
+      // Recargar pedidos
+      cargarPedidos();
+      
+      alert('¡Pedido creado exitosamente!');
+    } catch (error) {
+      console.error('❌ Error al crear pedido:', error);
+      alert('Error al crear el pedido: ' + (error.message || 'Por favor intenta nuevamente'));
+    }
+  };
+
+  const updateOrderStatus = async (orderId) => {
+    const order = orders.find(o => o.id === orderId);
+    const statusFlow = { pending: 'preparing', preparing: 'ready', ready: 'delivered' };
+    if (order && statusFlow[order.status]) {
+      try {
+        await updateOrder(orderId, { status: statusFlow[order.status] });
+        // Actualizar localmente
+        setOrders(orders.map(o => 
+          o.id === orderId ? { ...o, status: statusFlow[order.status] } : o
+        ));
+      } catch (error) {
+        console.error('❌ Error al actualizar estado:', error);
+      }
+    }
+  };
+
+  const handleDeleteOrder = async (orderId) => {
+    if (window.confirm('¿Está seguro de eliminar este pedido?')) {
+      try {
+        await deleteOrder(orderId);
+        // Actualizar localmente
+        setOrders(orders.filter(o => o.id !== orderId));
+      } catch (error) {
+        console.error('❌ Error al eliminar pedido:', error);
+      }
+    }
+  };
+
+  const filteredOrders = (orders || []).filter(order => {
+    const matchesSearch = order.table?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         order.id?.toString().includes(searchTerm);
+    const matchesFilter = filterStatus === 'all' || order.status === filterStatus;
+    return matchesSearch && matchesFilter;
+  });
+
+  const activeOrdersCount = (orders || []).filter(o => o.status !== 'delivered').length;
 
   return (
     <div className="space-y-6">
@@ -70,7 +129,7 @@ const Orders = () => {
           <div className="flex items-center space-x-4 mt-2">
             <span className="text-sm font-semibold text-blue-600">{activeOrdersCount} pedidos activos</span>
             <span className="text-sm text-gray-500">•</span>
-            <span className="text-sm text-gray-600">{orders.length} total</span>
+            <span className="text-sm text-gray-600">{orders?.length || 0} total</span>
           </div>
         </div>
         <button
@@ -117,7 +176,13 @@ const Orders = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredOrders.length > 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan="8" className="px-6 py-12 text-center text-gray-500">
+                    Cargando pedidos...
+                  </td>
+                </tr>
+              ) : filteredOrders.length > 0 ? (
                 filteredOrders.map((order) => (
                   <tr key={order.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4">
@@ -140,7 +205,7 @@ const Orders = () => {
                       {displayItems(order.items)}
                     </td>
                     <td className="px-6 py-4">
-                      <span className="font-bold text-gray-800">S/ {order.total.toFixed(2)}</span>
+                      <span className="font-bold text-gray-800">S/ {parseFloat(order.total).toFixed(2)}</span>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-600">{order.time}</td>
                     <td className="px-6 py-4">
@@ -186,6 +251,7 @@ const Orders = () => {
         </div>
       </div>
 
+      {/* Modal para crear pedido */}
       <Modal
         isOpen={showModal}
         onClose={() => {

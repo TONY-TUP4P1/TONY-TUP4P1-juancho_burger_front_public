@@ -86,6 +86,8 @@ export const DataProvider = ({ children }) => {
     }
   };
 
+  
+
   const loadUserOrders = async (userId) => {
     try {
     console.log('🔄 DataContext - loadUserOrders llamado con userId:', userId);
@@ -106,6 +108,20 @@ export const DataProvider = ({ children }) => {
     }
   };
 
+    // ⭐ NUEVA FUNCIÓN: Cargar todos los pedidos (para admin)
+  const loadAllOrders = async () => {
+    try {
+      console.log('🔄 DataContext - Cargando TODOS los pedidos...');
+      const allOrders = await orderService.getAllOrders();
+      console.log('✅ DataContext - Todos los pedidos cargados:', allOrders);
+      console.log('✅ DataContext - Cantidad:', allOrders.length);
+      setOrders(allOrders);
+    } catch (err) {
+      console.error('❌ DataContext - Error loading all orders:', err);
+      throw err;
+    }
+  };
+  
   // PRODUCTS
   const updateProduct = async (productId, updates) => {
     try {
@@ -208,14 +224,14 @@ export const DataProvider = ({ children }) => {
   };
 
   const value = {
-    orders, setOrders, addOrder, updateOrder, deleteOrder, loadUserOrders,
-    products, setProducts, updateProduct,
-    menuProducts, setMenuProducts,
-    promotions, setPromotions, addPromotion, updatePromotion, deletePromotion,
-    users, registerUser,
-    cart, addToCart, removeFromCart, updateCartQuantity, clearCart, getCartTotal, getCartItemsCount,
-    loading, error, loadInitialData
-  };
+  orders, setOrders, addOrder, updateOrder, deleteOrder, loadUserOrders, loadAllOrders, // ← Agregar loadAllOrders
+  products, setProducts, updateProduct,
+  menuProducts, setMenuProducts,
+  promotions, setPromotions, addPromotion, updatePromotion, deletePromotion,
+  users, registerUser,
+  cart, addToCart, removeFromCart, updateCartQuantity, clearCart, getCartTotal, getCartItemsCount,
+  loading, error, loadInitialData
+};
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 };
