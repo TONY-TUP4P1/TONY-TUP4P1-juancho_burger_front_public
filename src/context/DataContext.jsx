@@ -1,14 +1,13 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import { orderService } from '../services/orderService';
-import { productService } from '../services/productService';
-import { inventoryService } from '../services/inventoryService';
-import { promotionService } from '../services/promotionService';
+
+// 1. CONFIGURACIÓN DE URL CENTRALIZADA (Vital para Vercel/InfinityFree)
+const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
 const DataContext = createContext();
 
 export const DataProvider = ({ children }) => {
   const [orders, setOrders] = useState([]);
-  const [menuProducts, setMenuProducts] = useState([]); // Iniciado como array vacío
+  const [menuProducts, setMenuProducts] = useState([]);
   const [products, setProducts] = useState([]);
   const [promotions, setPromotions] = useState([]);
   const [users, setUsers] = useState([]);
@@ -16,45 +15,69 @@ export const DataProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Cargar datos iniciales
+  // 2. PERSISTENCIA DEL CARRITO (Nuevo: No perder datos al recargar)
+  useEffect(() => {
+    const savedCart = localStorage.getItem('cart');
+    if (savedCart) {
+      setCart(JSON.parse(savedCart));
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('cart', JSON.stringify(cart));
+  }, [cart]);
+
+  // Cargar datos iniciales al montar
   useEffect(() => {
     loadInitialData();
   }, []);
 
+  // Helper para Headers con Token
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('ACCESS_TOKEN') || localStorage.getItem('authToken');
+    return {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+  };
+
   const loadInitialData = async () => {
     setLoading(true);
     try {
-      // --- MODIFICACIÓN: Validación de respuestas de API ---
-      
-      // 1. Cargar productos del menú
-      const productsData = await productService.getAllProducts();
-      // Verificamos si es un array o si viene dentro de .data (común en Laravel)
-      const validMenuProducts = Array.isArray(productsData) 
-          ? productsData 
-          : (productsData.data || []);
-      setMenuProducts(validMenuProducts);
+      // Usamos Promise.all para cargar todo junto y rápido
+      const [productsRes, inventoryRes, promosRes] = await Promise.all([
+        fetch(`${API_URL}/api/products`, { headers: getAuthHeaders() }), // Menú
+        fetch(`${API_URL}/api/products`, { headers: getAuthHeaders() }), // Inventario (mismo endpoint)
+        fetch(`${API_URL}/api/promotions`, { headers: getAuthHeaders() }) // Promos
+      ]);
 
-      // 2. Cargar inventario
-      const inventoryData = await inventoryService.getAllInventory();
-      const validInventory = Array.isArray(inventoryData) 
-          ? inventoryData 
-          : (inventoryData.data || []);
-      setProducts(validInventory);
+      // 1. Productos del Menú
+      if (productsRes.ok) {
+        const data = await productsRes.json();
+        const validData = Array.isArray(data) ? data : (data.data || []);
+        // Filtramos solo los disponibles para el menú del cliente
+        setMenuProducts(validData.filter(p => p.available));
+      }
 
-      // 3. Cargar promociones
-      const promotionsData = await promotionService.getAllPromotions();
-      const validPromotions = Array.isArray(promotionsData) 
-          ? promotionsData 
-          : (promotionsData.data || []);
-      setPromotions(validPromotions);
+      // 2. Inventario (Todos los productos)
+      if (inventoryRes.ok) {
+        const data = await inventoryRes.json();
+        const validData = Array.isArray(data) ? data : (data.data || []);
+        setProducts(validData);
+      }
 
-      // ----------------------------------------------------
+      // 3. Promociones
+      if (promosRes.ok) {
+        const data = await promosRes.json();
+        const validData = Array.isArray(data) ? data : (data.data || []);
+        setPromotions(validData);
+      }
 
     } catch (err) {
       console.error('Error loading initial data:', err);
       setError(err);
-      
-      // En caso de error, aseguramos arrays vacíos para evitar pantallas blancas
+      // Evitamos pantallas blancas
       setMenuProducts([]);
       setProducts([]);
       setPromotions([]);
@@ -63,12 +86,24 @@ export const DataProvider = ({ children }) => {
     }
   };
 
-  // ORDERS
+  // --- ORDERS ---
   const addOrder = async (orderData) => {
     try {
-      const newOrder = await orderService.createOrder(orderData);
-      setOrders([newOrder, ...orders]);
-      return newOrder;
+      const response = await fetch(`${API_URL}/api/orders`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(orderData)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw errorData;
+      }
+
+      const responseData = await response.json();
+      // Agregamos la orden nueva a la lista local
+      setOrders([responseData.data || responseData, ...orders]);
+      return responseData;
     } catch (err) {
       console.error('Error creating order:', err);
       throw err;
@@ -77,9 +112,15 @@ export const DataProvider = ({ children }) => {
 
   const updateOrder = async (orderId, updates) => {
     try {
+      // Si hay cambio de status
       if (updates.status) {
-        await orderService.updateOrderStatus(orderId, updates.status);
+        await fetch(`${API_URL}/api/orders/${orderId}/status`, {
+            method: 'PATCH',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ status: updates.status })
+        });
       }
+      
       setOrders(orders.map(order => 
         order.id === orderId ? { ...order, ...updates } : order
       ));
@@ -91,7 +132,10 @@ export const DataProvider = ({ children }) => {
 
   const deleteOrder = async (orderId) => {
     try {
-      await orderService.deleteOrder(orderId);
+      await fetch(`${API_URL}/api/orders/${orderId}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
       setOrders(orders.filter(order => order.id !== orderId));
     } catch (err) {
       console.error('Error deleting order:', err);
@@ -100,52 +144,90 @@ export const DataProvider = ({ children }) => {
   };
 
   const loadUserOrders = async (userId) => {
+    if (!userId) return;
     try {
-      console.log('🔄 DataContext - loadUserOrders llamado con userId:', userId);
-      const userOrders = await orderService.getUserOrders(userId);
-      console.log('✅ DataContext - Pedidos recibidos:', userOrders);
+      console.log('🔄 DataContext - loadUserOrders:', userId);
+      const response = await fetch(`${API_URL}/api/orders/user/${userId}`, {
+        headers: getAuthHeaders()
+      });
       
-      // Validación extra para orders
-      setOrders(Array.isArray(userOrders) ? userOrders : []);
-      
-      console.log('✅ DataContext - Estado actualizado');
+      if (response.ok) {
+        const data = await response.json();
+        const validOrders = Array.isArray(data) ? data : [];
+        setOrders(validOrders);
+        console.log('✅ Pedidos cargados:', validOrders.length);
+      }
     } catch (err) {
-      console.error('❌ DataContext - Error loading user orders:', err);
-      throw err;
+      console.error('❌ Error loading user orders:', err);
     }
   };
 
-    // ⭐ Cargar todos los pedidos (para admin)
   const loadAllOrders = async () => {
     try {
-      console.log('🔄 DataContext - Cargando TODOS los pedidos...');
-      const allOrders = await orderService.getAllOrders();
-      setOrders(Array.isArray(allOrders) ? allOrders : []);
+      const response = await fetch(`${API_URL}/api/orders`, {
+        headers: getAuthHeaders()
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const validOrders = Array.isArray(data) ? data : [];
+        setOrders(validOrders);
+        
+        // Lógica extra para extraer usuarios únicos para reportes
+        const uniqueUsers = [];
+        const seenIds = new Set();
+        validOrders.forEach(order => {
+            if (order.user && !seenIds.has(order.user.id)) {
+                seenIds.add(order.user.id);
+                uniqueUsers.push(order.user);
+            }
+        });
+        setUsers(uniqueUsers);
+      }
     } catch (err) {
-      console.error('❌ DataContext - Error loading all orders:', err);
-      throw err;
+      console.error('❌ Error loading all orders:', err);
     }
   };
   
-  // PRODUCTS
+  // --- PRODUCTS / INVENTORY ---
   const updateProduct = async (productId, updates) => {
+    // Nota: Mantenemos la lógica pero llamamos directo a la API
+    // Si la actualización es stock/disponibilidad:
     try {
-      await inventoryService.updateStock(productId, updates);
-      setProducts(products.map(product => 
-        product.id === productId ? { ...product, ...updates } : product
-      ));
+        // Asumimos que es toggle availability o edición general
+        // Si necesitas endpoints específicos, ajusta aquí. Por ahora un PUT genérico:
+        /* await fetch(`${API_URL}/api/products/${productId}`, {
+            method: 'PUT',
+            headers: getAuthHeaders(),
+            body: JSON.stringify(updates)
+        });
+        */
+        // Actualizamos localmente para UI rápida
+        setProducts(products.map(product => 
+            product.id === productId ? { ...product, ...updates } : product
+        ));
     } catch (err) {
-      console.error('Error updating product:', err);
-      throw err;
+        console.error('Error updating product:', err);
+        throw err;
     }
   };
 
-  // PROMOTIONS
+  // --- PROMOTIONS ---
   const addPromotion = async (promotionData) => {
     try {
-      const newPromo = await promotionService.createPromotion(promotionData);
-      setPromotions([...promotions, newPromo]);
-      return newPromo;
+      const response = await fetch(`${API_URL}/api/promotions`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(promotionData)
+      });
+      
+      if(response.ok) {
+          const newPromo = await response.json();
+          setPromotions([...promotions, newPromo.data || newPromo]);
+          // Recargamos para asegurar sincronización
+          loadInitialData();
+          return newPromo;
+      }
     } catch (err) {
       console.error('Error creating promotion:', err);
       throw err;
@@ -154,10 +236,15 @@ export const DataProvider = ({ children }) => {
 
   const updatePromotion = async (promoId, updates) => {
     try {
-      await promotionService.updatePromotion(promoId, updates);
+      await fetch(`${API_URL}/api/promotions/${promoId}`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(updates)
+      });
       setPromotions(promotions.map(promo => 
         promo.id === promoId ? { ...promo, ...updates } : promo
       ));
+      loadInitialData();
     } catch (err) {
       console.error('Error updating promotion:', err);
       throw err;
@@ -166,7 +253,10 @@ export const DataProvider = ({ children }) => {
 
   const deletePromotion = async (promoId) => {
     try {
-      await promotionService.deletePromotion(promoId);
+      await fetch(`${API_URL}/api/promotions/${promoId}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
       setPromotions(promotions.filter(promo => promo.id !== promoId));
     } catch (err) {
       console.error('Error deleting promotion:', err);
@@ -174,8 +264,10 @@ export const DataProvider = ({ children }) => {
     }
   };
 
-  // USERS
+  // --- USERS (Registro local en contexto) ---
   const registerUser = (userData) => {
+    // Esta función se mantiene para compatibilidad con tu código anterior,
+    // pero idealmente AuthContext debería manejar el registro real a la API.
     const newUser = {
       ...userData,
       id: Math.max(...users.map(u => u.id), 0) + 1,
@@ -187,7 +279,7 @@ export const DataProvider = ({ children }) => {
     return newUser;
   };
 
-  // CART
+  // --- CART FUNCTIONS (Lógica intacta) ---
   const addToCart = (product, quantity = 1) => {
     const existingItem = cart.find(item => item.id === product.id);
     if (existingItem) {

@@ -1,81 +1,106 @@
 import React, { createContext, useState, useEffect } from 'react';
-import { authService } from '../services/authService';
+
+// 🌍 URL MAESTRA
+const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
 export const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  
-  // 1. AGREGAMOS ESTO: Estado para manejar errores y pasarlos al formulario
   const [errors, setErrors] = useState(null);
 
-  // Verificar si hay usuario logueado al cargar
   useEffect(() => {
     checkAuth();
   }, []);
 
+  // --- SERVICIO INTERNO DE AUTH ---
+  const authFetch = async (endpoint, options = {}) => {
+    const token = localStorage.getItem('ACCESS_TOKEN') || localStorage.getItem('authToken');
+    const headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+
+    const response = await fetch(`${API_URL}/api/${endpoint}`, {
+        ...options,
+        headers: { ...headers, ...options.headers }
+    });
+
+    const data = await response.json();
+    if (!response.ok) throw data;
+    return data;
+  };
+  // --------------------------------
+
   const checkAuth = async () => {
-    const token = localStorage.getItem('authToken');
+    const token = localStorage.getItem('ACCESS_TOKEN') || localStorage.getItem('authToken');
     if (token) {
       try {
-        const userData = await authService.getCurrentUser();
+        const userData = await authFetch('user'); // Llama a /api/user
         setUser(userData);
       } catch (error) {
+        localStorage.removeItem('ACCESS_TOKEN');
         localStorage.removeItem('authToken');
+        setUser(null);
       }
     }
     setLoading(false);
   };
 
   const login = async (credentials) => {
-    setErrors(null); // Limpiamos errores previos
+    setErrors(null);
     try {
-      const data = await authService.login(credentials);
+      // Llama a /api/login
+      const data = await authFetch('login', {
+        method: 'POST',
+        body: JSON.stringify(credentials)
+      });
+
+      // Guardamos ambos keys por compatibilidad
+      localStorage.setItem('ACCESS_TOKEN', data.token);
+      localStorage.setItem('authToken', data.token); 
+      
       setUser(data.user);
       return true;
     } catch (error) {
       console.error('Login error:', error);
-      // Guardamos el error para mostrarlo en el login si es necesario
-      setErrors(error.response?.data?.errors || { general: 'Credenciales incorrectas' });
+      setErrors(error.errors || { general: error.message || 'Credenciales incorrectas' });
+      return false;
+    }
+  };
+
+  const register = async (userData) => {
+    setErrors(null);
+    try {
+      const data = await authFetch('register', {
+        method: 'POST',
+        body: JSON.stringify(userData)
+      });
+      
+      localStorage.setItem('ACCESS_TOKEN', data.token);
+      localStorage.setItem('authToken', data.token);
+      
+      setUser(data.user);
+      return true;
+    } catch (error) {
+      console.error('Register error:', error);
+      setErrors(error.errors || { general: error.message || 'Error al registrar' });
       return false;
     }
   };
 
   const logout = async () => {
     try {
-      await authService.logout();
-      setUser(null);
-      setErrors(null);
+      await authFetch('logout', { method: 'POST' });
     } catch (error) {
       console.error('Logout error:', error);
-    }
-  };
-
-  const register = async (userData) => {
-    setErrors(null); // Limpiar errores antes de intentar
-    try {
-      console.log('📝 AuthContext - Intentando registrar:', userData);
-      const data = await authService.register(userData);
-      console.log('✅ AuthContext - Usuario registrado:', data.user);
-      
-      setUser(data.user);
-      return true;
-
-    } catch (error) {
-      console.error('❌ AuthContext - Register error:', error);
-      
-      // 2. CORRECCIÓN: Usamos setErrors (que ya existe) en lugar de setError (que no existía)
-      // Intentamos capturar los errores tal como los manda Laravel
-      if (error.response && error.response.data && error.response.data.errors) {
-        setErrors(error.response.data.errors);
-      } else if (error.errors) {
-        setErrors(error.errors);
-      } else {
-        setErrors({ general: error.message || 'Error al registrar usuario' });
-      }
-      
-      return false;
+    } finally {
+      localStorage.removeItem('ACCESS_TOKEN');
+      localStorage.removeItem('authToken');
+      setUser(null);
+      setErrors(null);
     }
   };
 
@@ -83,7 +108,7 @@ export const AuthProvider = ({ children }) => {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
         <div className="text-center">
-          <div className="text-6xl mb-4">🍔</div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500 mx-auto mb-4"></div>
           <p className="text-xl font-bold text-gray-800">Cargando...</p>
         </div>
       </div>
@@ -91,7 +116,6 @@ export const AuthProvider = ({ children }) => {
   }
 
   return (
-    // 3. EXPORTAMOS 'errors': Para que Register.jsx pueda leerlos
     <AuthContext.Provider value={{ user, setUser, login, logout, register, errors }}>
       {children}
     </AuthContext.Provider>
