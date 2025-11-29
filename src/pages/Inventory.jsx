@@ -17,19 +17,21 @@ const Inventory = () => {
     fetchStats();
   }, []);
 
+  // Función auxiliar para obtener el token correcto siempre
+  const getToken = () => localStorage.getItem('ACCESS_TOKEN') || localStorage.getItem('authToken');
+
   const fetchProducts = async () => {
     try {
-      const token = localStorage.getItem('authToken');
       const response = await fetch('http://127.0.0.1:8000/api/products', {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${getToken()}`,
           'Accept': 'application/json'
         }
       });
 
       const data = await response.json();
-      if (data.success) {
-        setProducts(data.data);
+      if (data.success || response.ok) {
+        setProducts(data.data || data); // Soporte para ambas estructuras de respuesta
       }
     } catch (error) {
       console.error('Error al cargar productos:', error);
@@ -40,17 +42,16 @@ const Inventory = () => {
 
   const fetchStats = async () => {
     try {
-      const token = localStorage.getItem('token');
       const response = await fetch('http://127.0.0.1:8000/api/products/stats/all', {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${getToken()}`, // CORREGIDO: Usaba 'token' antes
           'Accept': 'application/json'
         }
       });
 
       const data = await response.json();
-      if (data.success) {
-        setStats(data.data);
+      if (data.success || response.ok) {
+        setStats(data.data || data);
       }
     } catch (error) {
       console.error('Error al cargar estadísticas:', error);
@@ -73,17 +74,15 @@ const Inventory = () => {
     }
 
     try {
-      const token = localStorage.getItem('authToken');
       const response = await fetch(`http://127.0.0.1:8000/api/products/${productId}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${getToken()}`,
           'Accept': 'application/json'
         }
       });
 
-      const data = await response.json();
-      if (data.success) {
+      if (response.ok) {
         fetchProducts();
         fetchStats();
       } else {
@@ -95,23 +94,38 @@ const Inventory = () => {
     }
   };
 
-  const handleToggleAvailability = async (productId) => {
+  // --- CORRECCIÓN PRINCIPAL AQUÍ ---
+  const handleToggleAvailability = async (product) => {
+    // 1. Actualización Optimista: Cambiamos la UI inmediatamente para que se sienta rápido
+    const updatedProducts = products.map(p => 
+      p.id === product.id ? { ...p, available: !p.available } : p
+    );
+    setProducts(updatedProducts);
+
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`http://127.0.0.1:8000/api/products/${productId}/toggle-availability`, {
+      // 2. Llamada a la API
+      // Nota: Si tu backend no tiene la ruta 'toggle-availability', usa un PUT normal a /products/{id}
+      const response = await fetch(`http://127.0.0.1:8000/api/products/${product.id}/toggle-availability`, {
         method: 'PATCH',
         headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/json'
+          'Authorization': `Bearer ${getToken()}`, // CORREGIDO: Antes decía 'token' y fallaba
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
         }
       });
 
-      const data = await response.json();
-      if (data.success) {
-        fetchProducts();
+      if (!response.ok) {
+        throw new Error('Falló la actualización en servidor');
       }
+      
+      // Actualizamos estadísticas en segundo plano
+      fetchStats();
+
     } catch (error) {
-      console.error('Error:', error);
+      console.error('Error al cambiar disponibilidad:', error);
+      // Si falla, revertimos los cambios recargando la lista original
+      fetchProducts();
+      alert('No se pudo cambiar la disponibilidad. Verifica tu conexión.');
     }
   };
 
@@ -139,7 +153,7 @@ const Inventory = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center space-y-4 md:space-y-0">
         <div>
@@ -165,7 +179,7 @@ const Inventory = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-blue-100 text-sm font-medium">Total de Productos</p>
-                <p className="text-3xl font-bold mt-2">{stats.total_products}</p>
+                <p className="text-3xl font-bold mt-2">{stats.total_products || 0}</p>
               </div>
               <span className="text-5xl opacity-80">📊</span>
             </div>
@@ -175,7 +189,7 @@ const Inventory = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-green-100 text-sm font-medium">Disponibles</p>
-                <p className="text-3xl font-bold mt-2">{stats.available_products}</p>
+                <p className="text-3xl font-bold mt-2">{stats.available_products || 0}</p>
               </div>
               <span className="text-5xl opacity-80">✅</span>
             </div>
@@ -185,7 +199,7 @@ const Inventory = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-red-100 text-sm font-medium">No Disponibles</p>
-                <p className="text-3xl font-bold mt-2">{stats.unavailable_products}</p>
+                <p className="text-3xl font-bold mt-2">{stats.unavailable_products || 0}</p>
               </div>
               <span className="text-5xl opacity-80">❌</span>
             </div>
@@ -195,7 +209,7 @@ const Inventory = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-purple-100 text-sm font-medium">Precio Promedio</p>
-                <p className="text-3xl font-bold mt-2">S/. {stats.average_price}</p>
+                <p className="text-3xl font-bold mt-2">S/. {parseFloat(stats.average_price || 0).toFixed(2)}</p>
               </div>
               <span className="text-5xl opacity-80">💰</span>
             </div>
@@ -268,11 +282,12 @@ const Inventory = () => {
                     <td className="px-6 py-4">
                       <div className="flex items-center space-x-3">
                         <img
-                          src={product.image}
+                          src={product.image || `https://ui-avatars.com/api/?name=${product.name}&background=random`}
                           alt={product.name}
-                          className="w-16 h-16 rounded-lg object-cover"
+                          className="w-16 h-16 rounded-lg object-cover bg-gray-100"
                           onError={(e) => {
-                            e.target.src = 'https://via.placeholder.com/100?text=Producto';
+                            e.target.onerror = null;
+                            e.target.src = `https://ui-avatars.com/api/?name=${product.name}&background=random&color=fff`;
                           }}
                         />
                         <div>
@@ -296,7 +311,7 @@ const Inventory = () => {
                     </td>
                     <td className="px-6 py-4">
                       <button
-                        onClick={() => handleToggleAvailability(product.id)}
+                        onClick={() => handleToggleAvailability(product)} // Pasamos el objeto completo
                         className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
                           product.available
                             ? 'bg-green-100 text-green-700 hover:bg-green-200'

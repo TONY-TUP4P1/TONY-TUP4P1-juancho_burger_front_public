@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 
 const Register = ({ onSwitchToLogin }) => {
-  const { register } = useAuth();
+  // 1. Obtenemos 'register' y 'errors' (renombrado como serverErrors) del contexto
+  const { register, errors: serverErrors } = useAuth();
+  
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -10,11 +12,29 @@ const Register = ({ onSwitchToLogin }) => {
     password: '',
     confirmPassword: ''
   });
+  
   const [errors, setErrors] = useState({});
   const [generalError, setGeneralError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Validar campo individual en tiempo real
+  // 2. EFECTO: Escuchar errores del servidor y mostrarlos en tu formulario
+  useEffect(() => {
+    if (serverErrors) {
+      const backendErrors = {};
+      // Convertimos el array de Laravel (ej: ["El email ya existe"]) a tu formato string
+      Object.keys(serverErrors).forEach(key => {
+        if (Array.isArray(serverErrors[key])) {
+            backendErrors[key] = serverErrors[key][0];
+        } else {
+            backendErrors[key] = serverErrors[key];
+        }
+      });
+      setErrors(prev => ({ ...prev, ...backendErrors }));
+      setGeneralError('Hubo un problema con el registro.');
+    }
+  }, [serverErrors]);
+
+  // Validar campo individual en tiempo real (TU LÓGICA ORIGINAL)
   const validateField = (name, value) => {
     let error = '';
 
@@ -84,7 +104,7 @@ const Register = ({ onSwitchToLogin }) => {
       [name]: error
     });
 
-    // Limpiar error general
+    // Limpiar error general al escribir
     setGeneralError('');
   };
 
@@ -115,41 +135,31 @@ const Register = ({ onSwitchToLogin }) => {
 
     try {
       setLoading(true);
-      console.log('📝 Register - Enviando datos:', {
-        name: formData.name,
-        username: formData.username,
-        email: formData.email
-      });
-
-      // Enviar solo los datos necesarios (sin confirmPassword)
+      
+      // 3. PREPARAR DATOS: Incluimos password_confirmation para Laravel
       const userData = {
         name: formData.name,
         username: formData.username,
         email: formData.email,
-        password: formData.password
+        password: formData.password,
+        password_confirmation: formData.confirmPassword // ¡CRUCIAL!
       };
 
+      console.log('📝 Register - Enviando datos:', userData);
+
+      // Llamamos al register del AuthContext (que ya no lanza error, retorna true/false)
       const success = await register(userData);
       
       if (success) {
-        alert('✅ ¡Registro exitoso! Ahora puedes iniciar sesión con tus credenciales.');
-        onSwitchToLogin();
-      }
+        alert('✅ ¡Registro exitoso! Ahora puedes iniciar sesión.');
+        onSwitchToLogin(); // Volvemos al login
+      } 
+      // Si success es false, el useEffect de arriba capturará los 'serverErrors' 
+      // y actualizará la UI automáticamente.
+
     } catch (err) {
-      console.error('❌ Register - Error:', err);
-      
-      // Manejar errores del backend
-      if (err.errors) {
-        // Errores de validación específicos del backend
-        const backendErrors = {};
-        Object.keys(err.errors).forEach(key => {
-          backendErrors[key] = err.errors[key][0]; // Tomar el primer error
-        });
-        setErrors({ ...errors, ...backendErrors });
-        setGeneralError('Hay errores en el formulario. Por favor revíselos.');
-      } else {
-        setGeneralError(err.message || 'Error al registrar usuario. Por favor intente nuevamente.');
-      }
+      console.error('❌ Register - Error inesperado:', err);
+      setGeneralError('Error de conexión. Intente nuevamente.');
     } finally {
       setLoading(false);
     }

@@ -6,6 +6,9 @@ export const AuthContext = createContext();
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  
+  // 1. AGREGAMOS ESTO: Estado para manejar errores y pasarlos al formulario
+  const [errors, setErrors] = useState(null);
 
   // Verificar si hay usuario logueado al cargar
   useEffect(() => {
@@ -26,12 +29,15 @@ export const AuthProvider = ({ children }) => {
   };
 
   const login = async (credentials) => {
+    setErrors(null); // Limpiamos errores previos
     try {
       const data = await authService.login(credentials);
       setUser(data.user);
       return true;
     } catch (error) {
       console.error('Login error:', error);
+      // Guardamos el error para mostrarlo en el login si es necesario
+      setErrors(error.response?.data?.errors || { general: 'Credenciales incorrectas' });
       return false;
     }
   };
@@ -40,34 +46,37 @@ export const AuthProvider = ({ children }) => {
     try {
       await authService.logout();
       setUser(null);
+      setErrors(null);
     } catch (error) {
       console.error('Logout error:', error);
     }
   };
 
   const register = async (userData) => {
-  try {
-    console.log('📝 AuthContext - Intentando registrar:', userData);
-    const data = await authService.register(userData);
-    console.log('✅ AuthContext - Usuario registrado:', data.user);
-    setUser(data.user);
-    setError(null);
-    return true;
-  } catch (error) {
-    console.error('❌ AuthContext - Register error:', error);
-    
-    // Mostrar errores de validación de forma clara
-    if (error.errors) {
-      const errorMessages = Object.values(error.errors).flat().join('\n');
-      setError(errorMessages);
-      alert('Errores de validación:\n' + errorMessages);
-    } else {
-      setError(error.message || 'Error al registrar usuario');
-      alert(error.message || 'Error al registrar usuario');
+    setErrors(null); // Limpiar errores antes de intentar
+    try {
+      console.log('📝 AuthContext - Intentando registrar:', userData);
+      const data = await authService.register(userData);
+      console.log('✅ AuthContext - Usuario registrado:', data.user);
+      
+      setUser(data.user);
+      return true;
+
+    } catch (error) {
+      console.error('❌ AuthContext - Register error:', error);
+      
+      // 2. CORRECCIÓN: Usamos setErrors (que ya existe) en lugar de setError (que no existía)
+      // Intentamos capturar los errores tal como los manda Laravel
+      if (error.response && error.response.data && error.response.data.errors) {
+        setErrors(error.response.data.errors);
+      } else if (error.errors) {
+        setErrors(error.errors);
+      } else {
+        setErrors({ general: error.message || 'Error al registrar usuario' });
+      }
+      
+      return false;
     }
-    
-    return false;
-  }
   };
 
   if (loading) {
@@ -82,7 +91,8 @@ export const AuthProvider = ({ children }) => {
   }
 
   return (
-    <AuthContext.Provider value={{ user, setUser, login, logout, register }}>
+    // 3. EXPORTAMOS 'errors': Para que Register.jsx pueda leerlos
+    <AuthContext.Provider value={{ user, setUser, login, logout, register, errors }}>
       {children}
     </AuthContext.Provider>
   );

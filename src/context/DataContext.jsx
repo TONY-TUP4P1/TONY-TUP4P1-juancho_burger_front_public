@@ -8,7 +8,7 @@ const DataContext = createContext();
 
 export const DataProvider = ({ children }) => {
   const [orders, setOrders] = useState([]);
-  const [menuProducts, setMenuProducts] = useState([]);
+  const [menuProducts, setMenuProducts] = useState([]); // Iniciado como array vacío
   const [products, setProducts] = useState([]);
   const [promotions, setPromotions] = useState([]);
   const [users, setUsers] = useState([]);
@@ -22,33 +22,46 @@ export const DataProvider = ({ children }) => {
   }, []);
 
   const loadInitialData = async () => {
-  setLoading(true);
-  try {
-    // Cargar productos del menú
-    const productsData = await productService.getAllProducts();
-    setMenuProducts(productsData);
+    setLoading(true);
+    try {
+      // --- MODIFICACIÓN: Validación de respuestas de API ---
+      
+      // 1. Cargar productos del menú
+      const productsData = await productService.getAllProducts();
+      // Verificamos si es un array o si viene dentro de .data (común en Laravel)
+      const validMenuProducts = Array.isArray(productsData) 
+          ? productsData 
+          : (productsData.data || []);
+      setMenuProducts(validMenuProducts);
 
-    // Cargar inventario
-    const inventoryData = await inventoryService.getAllInventory();
-    setProducts(inventoryData);
+      // 2. Cargar inventario
+      const inventoryData = await inventoryService.getAllInventory();
+      const validInventory = Array.isArray(inventoryData) 
+          ? inventoryData 
+          : (inventoryData.data || []);
+      setProducts(validInventory);
 
-    // Cargar promociones
-    const promotionsData = await promotionService.getAllPromotions();
-    setPromotions(promotionsData);
+      // 3. Cargar promociones
+      const promotionsData = await promotionService.getAllPromotions();
+      const validPromotions = Array.isArray(promotionsData) 
+          ? promotionsData 
+          : (promotionsData.data || []);
+      setPromotions(validPromotions);
 
-    // NO cargamos orders aquí porque depende del usuario logueado
-    // Se cargarán en OrderController cuando el admin/user lo necesite
+      // ----------------------------------------------------
 
-  } catch (err) {
-    console.error('Error loading initial data:', err);
-    setError(err);
-    
-    // Si falla, usar datos de respaldo (opcional)
-    // Aquí puedes poner datos dummy si quieres que funcione offline
-  } finally {
-    setLoading(false);
-  }
-};
+    } catch (err) {
+      console.error('Error loading initial data:', err);
+      setError(err);
+      
+      // En caso de error, aseguramos arrays vacíos para evitar pantallas blancas
+      setMenuProducts([]);
+      setProducts([]);
+      setPromotions([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // ORDERS
   const addOrder = async (orderData) => {
@@ -86,36 +99,28 @@ export const DataProvider = ({ children }) => {
     }
   };
 
-  
-
   const loadUserOrders = async (userId) => {
     try {
-    console.log('🔄 DataContext - loadUserOrders llamado con userId:', userId);
-    const userOrders = await orderService.getUserOrders(userId);
-    console.log('✅ DataContext - Pedidos recibidos:', userOrders);
-    console.log('✅ DataContext - Cantidad:', userOrders.length);
-    
-    if (userOrders.length > 0) {
-      console.log('✅ DataContext - Primer pedido:', userOrders[0]);
-    }
-    
-    setOrders(userOrders);
-    console.log('✅ DataContext - Estado actualizado');
+      console.log('🔄 DataContext - loadUserOrders llamado con userId:', userId);
+      const userOrders = await orderService.getUserOrders(userId);
+      console.log('✅ DataContext - Pedidos recibidos:', userOrders);
+      
+      // Validación extra para orders
+      setOrders(Array.isArray(userOrders) ? userOrders : []);
+      
+      console.log('✅ DataContext - Estado actualizado');
     } catch (err) {
       console.error('❌ DataContext - Error loading user orders:', err);
-      console.error('❌ DataContext - Error response:', err.response);
       throw err;
     }
   };
 
-    // ⭐ NUEVA FUNCIÓN: Cargar todos los pedidos (para admin)
+    // ⭐ Cargar todos los pedidos (para admin)
   const loadAllOrders = async () => {
     try {
       console.log('🔄 DataContext - Cargando TODOS los pedidos...');
       const allOrders = await orderService.getAllOrders();
-      console.log('✅ DataContext - Todos los pedidos cargados:', allOrders);
-      console.log('✅ DataContext - Cantidad:', allOrders.length);
-      setOrders(allOrders);
+      setOrders(Array.isArray(allOrders) ? allOrders : []);
     } catch (err) {
       console.error('❌ DataContext - Error loading all orders:', err);
       throw err;
@@ -171,7 +176,6 @@ export const DataProvider = ({ children }) => {
 
   // USERS
   const registerUser = (userData) => {
-    // Esto se maneja en AuthContext ahora
     const newUser = {
       ...userData,
       id: Math.max(...users.map(u => u.id), 0) + 1,
@@ -224,14 +228,14 @@ export const DataProvider = ({ children }) => {
   };
 
   const value = {
-  orders, setOrders, addOrder, updateOrder, deleteOrder, loadUserOrders, loadAllOrders, // ← Agregar loadAllOrders
-  products, setProducts, updateProduct,
-  menuProducts, setMenuProducts,
-  promotions, setPromotions, addPromotion, updatePromotion, deletePromotion,
-  users, registerUser,
-  cart, addToCart, removeFromCart, updateCartQuantity, clearCart, getCartTotal, getCartItemsCount,
-  loading, error, loadInitialData
-};
+    orders, setOrders, addOrder, updateOrder, deleteOrder, loadUserOrders, loadAllOrders,
+    products, setProducts, updateProduct,
+    menuProducts, setMenuProducts,
+    promotions, setPromotions, addPromotion, updatePromotion, deletePromotion,
+    users, registerUser,
+    cart, addToCart, removeFromCart, updateCartQuantity, clearCart, getCartTotal, getCartItemsCount,
+    loading, error, loadInitialData
+  };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 };

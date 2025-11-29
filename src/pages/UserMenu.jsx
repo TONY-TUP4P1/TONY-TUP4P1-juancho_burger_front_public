@@ -1,19 +1,40 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ShoppingCart, Plus, Search } from 'lucide-react';
 import { useData } from '../hooks/useData';
 
 const UserMenu = () => {
-  const { menuProducts, addToCart, getCartItemsCount } = useData();
+  const { menuProducts, addToCart, getCartItemsCount, loadInitialData } = useData();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Todos');
   const [notification, setNotification] = useState('');
 
+  useEffect(() => {
+    loadInitialData();
+  }, []);
+
   const categories = ['Todos', 'Hamburguesas', 'Combos', 'Acompañamientos', 'Bebidas'];
 
-  const filteredProducts = menuProducts.filter(product => {
+  const safeProducts = Array.isArray(menuProducts) ? menuProducts : [];
+
+  const filteredProducts = safeProducts.filter(product => {
+    // 1. Filtro por Texto (Nombre o Descripción)
     const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         product.description.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = selectedCategory === 'Todos' || product.category === selectedCategory;
+                          product.description.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    // 2. CORRECCIÓN DEL FILTRO DE CATEGORÍA
+    let matchesCategory = false;
+
+    if (selectedCategory === 'Todos') {
+        matchesCategory = true;
+    } else if (selectedCategory === 'Acompañamientos' && product.category === 'Complementos') {
+        // ¡AQUÍ ESTÁ EL TRUCO!
+        // Si el usuario elige "Acompañamientos", mostramos los que en la BD son "Complementos"
+        matchesCategory = true;
+    } else {
+        // Para el resto (Hamburguesas, Bebidas, Combos) debe coincidir exacto
+        matchesCategory = product.category === selectedCategory;
+    }
+
     return matchesSearch && matchesCategory && product.available;
   });
 
@@ -24,7 +45,7 @@ const UserMenu = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
@@ -78,10 +99,19 @@ const UserMenu = () => {
       {/* Grid de Productos */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {filteredProducts.map(product => (
-          <div key={product.id} className="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-xl transition-all border border-gray-100 hover:scale-105">
+          <div key={product.id} className="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-xl transition-all border border-gray-100 hover:scale-105 group">
+            
             {/* Imagen del producto */}
-            <div className="bg-gradient-to-br from-orange-100 to-red-100 h-48 flex items-center justify-center text-7xl">
-              {product.image}
+            <div className="h-48 w-full bg-gray-200 relative overflow-hidden">
+                <img 
+                    src={product.image || `https://ui-avatars.com/api/?name=${product.name}&background=random`} 
+                    alt={product.name}
+                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                    onError={(e) => {
+                        e.target.onerror = null;
+                        e.target.src = `https://ui-avatars.com/api/?name=${product.name}&background=random&size=500`;
+                    }}
+                />
             </div>
 
             {/* Información del producto */}
@@ -93,7 +123,7 @@ const UserMenu = () => {
 
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs font-semibold text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
-                  ⏱️ {product.preparationTime}
+                  ⏱️ {product.preparationTime || '15 min'}
                 </span>
                 <span className="text-xs font-semibold text-green-700 bg-green-100 px-3 py-1 rounded-full">
                   ✓ Disponible
@@ -107,7 +137,7 @@ const UserMenu = () => {
                 </div>
                 <button
                   onClick={() => handleAddToCart(product)}
-                  className="bg-gradient-to-r from-red-500 to-orange-500 text-white px-4 py-3 rounded-xl font-bold hover:shadow-lg transition-all flex items-center space-x-2"
+                  className="bg-gradient-to-r from-red-500 to-orange-500 text-white px-4 py-3 rounded-xl font-bold hover:shadow-lg transition-all flex items-center space-x-2 active:scale-95"
                 >
                   <Plus size={20} />
                   <span>Agregar</span>
